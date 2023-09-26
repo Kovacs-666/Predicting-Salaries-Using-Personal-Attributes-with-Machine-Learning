@@ -1,0 +1,1345 @@
+---
+title: "From Project to Paycheck: Predicting Salaries in the Modern Era"
+author: "Rongjian Liu"
+date: "2023-09-09"
+output: 
+  html_document:
+    theme: cerulean
+    toc: true
+    toc_float: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+It's a world that has dramatically evolved over the recent years, shaped by technological advancements, globalization, shifting socio-economic landscapes, and especially the daunting global pandemic COVID-19. As I stand on the in the cusp of graduation, the vast expanse of the job beckons in the post COVID era. For us, the new entrants, understanding this market is not just finding a job, it's more about finding new opportunities, and charting a course for our future.
+
+### Why Salary Prediction Matters
+
+From remote working to global collaborations. The dynamism also brings challenges. How do we navigate this vast sea of opportunities? How do we differentiate ourselves? And most importantly, how do we gauge our worth in such a rapid changing job market?
+
+Salary Prediction is not just about numbers. It's about the value we brings to the table and the value the market places of us. It's about making more informed decisions about our careers. Should we pursue Master or PHD? Is it worth relocating for a job? What industry should I get into? How much should we expect for our salary? These are questions that salary predictions can help answer. 
+
+### Aim of this Project
+
+The aim of this project is to use different machine learning models to predict the salary using the personal attributes like race, education, and age as predictors, leveraging the machine learning technologies to gain personalized salary insights. By analyzing the patterns exits between personal attributes and salary from the dataset, we hope to gain a cleaner picture of what to expect and how to position ourselves in the job market.
+
+### Project Roadmap
+
+The project is mainly contains 4 section: Data Exploration, Model Setup, Model Building, and Model Testing. In Data Exploration section, our raw dataset will be loaded, explained, and cleaned. Then we will perform Exploratory Data Analysis (EDA) using out cleaned dataset. In Model Setup section, the dataset will be split in to training and testing. Then, the general model recipe will be created. Last, the training dataset will be 10-folded to get ready for Cross Validation. In model building section, the recipe will first be used to defining a model workflow. Six different models will be used to predict salary: Linear Regression, Lasso regression, Ridge Regression, Elastic Net Regression, K Nearest Neighbors, and Random Forest. After we have the workflow, we will create tuning grids for hyperparameters in the model. In the end, the model performance will be evaluated using R squared, and the best model will be selected for the final model testing. Last but not least, in the Model Testing section, our champion model will be tested. Its result will be assessed and interpreted using different metrics and variable importance plot. With this overview of the project, let's dive in Data Exploration and embark on this exciting journey!
+
+![](https://media.giphy.com/media/XZkqrQeqkxelW/giphy.gif)
+
+# Data Exploration
+For this project we will be working with the "<a href="https://www.kaggle.com/code/rajatraj0502/salary-dataset-based-on-country-and-race/input">Salary Data Based Country and Race</a>" dataset which I found on Kaggle. The dataset consist of a comprehensive collection of salary and demographic information with additional details on years of experience. It offers a valuable resource for studying the relationship between income and various socio-demographic factors. More importantly, it's a new dataset and was recently updated on July 2023. So without further ado, let's dive into the data.
+
+## Tidying the dataset
+First and foremost, Let's load all necessary packages and set a seed for our project. Setting a seed ensures reproducibility in random number generation, allowing for consistent and repeatable results in our project.
+
+```{r,message=FALSE}
+#Loading necessary packages
+library(tidyverse)
+library(tidymodels)
+library(ggplot2)
+library(yardstick)
+library(naniar)
+library(dplyr)
+library(corrplot)
+library(discrim)
+library(pROC)
+library(naniar)
+library(ggcorrplot)
+library(kableExtra)
+library(forcats)
+library(stringdist)
+library(viridis)
+library(recipes)
+library(modeldata)
+library(themis)
+library(ranger)
+library(vip)
+
+#Setting a seed
+set.seed(100)
+```
+
+Now let's start by reading in our raw dataset.
+
+```{r}
+# Reading the dataset
+current_wd <- getwd()
+salary <- read.csv(paste0(current_wd,"/Salary_Data_Based_country_and_race.csv"))
+
+# visualize the dataset
+salary |> 
+  kable("html")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "200px")
+
+# Show the number of variables
+paste("Number of variables:", dim(salary)[2])
+```
+
+The dataset has in total 6704 different observations and 9 different variables. The first column appears to be the index column which seems redundant since R automatically assigns an index when we load the data. Also, since the Salary is what we are going to predict, let's move it into the first column.
+
+```{r}
+salary <- salary |> 
+  # Deleting the X column
+  select(-X) |>
+  # Moving Salary column to the first position
+  select(Salary, everything())
+
+# visualize the dataset
+salary |> 
+  kable("html")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "200px")
+
+# Show the number of variables
+paste("Number of variables:", dim(salary)[2])
+```
+
+We now have 8 variables in our raw dataset. Starts with our response variable "Salary":
+
+* <b> `Salary` </b>
+  + Type: Numerical (float)
+  + Meaning: The annual income level or salary earned by the individuals, denoting their monetary compensation.
+  
+Besides our response variable "Salary", the rest 7 variables are predictors. I not considering to discard any of these 7 predictors since we are trying to predict "Salary", it is useful to consider all of the 7 predictors which are:
+
+* <b> `Age` </b>
+  + Type: Numerical (int) 
+  + Meaning: The age of the individuals in the dataset, representing their chronological age in years.
+  + Significance: Age can be a factor in salary determination. In many industries, experience (which often correlates with age) can lead to higher salaries.
+
+* <b> `Gender` </b>
+  + Type: Categorical (string)
+  + Meaning: The gender identification of the individuals, indicating their gender or gender identity. 
+  + Significance: Gender wage gaps are a well-documented phenomenon. Including gender can help analyze if such disparities exist in the dataset.
+  
+* <b> `Education.Level` </b>
+  + Type: Categorical (string)
+  + Meaning: The highest level of education attained by the individuals, indicating their educational qualifications or degree.
+  + Significance: Education level can significantly influence salary. Typically, higher education levels correlate with higher salaries.
+
+* <b> `Job.Title` </b>
+  + Type: Categorical (string)
+  + Meaning: The occupation or job title of the individuals, specifying their professional role or position.
+  + Significance: Different job titles have different salary ranges. For instance, a director might earn more than a junior employee.
+
+* <b> `Years.of.Experience` </b>
+  + Type: Numerical (int)
+  + Meaning: The number of years of professional experience accumulated by the individuals in their respective fields.
+  + Significance: Different job titles have different salary ranges. For instance, a director might earn more than a junior employee.
+
+* <b> `Country` </b>
+  + Type: Categorical (string)
+  + Meaning: The country of residence or origin of the individuals, providing geographical information.
+  + Significance: Salaries can vary significantly between countries due to differences in living costs, economic conditions, and industry demand. 
+* <b> `Race` </b>
+  + Type: Categorical (string)
+  + Meaning: The racial background or ethnicity of the individuals, reflecting their specific racial or ethnic group.
+  + Significance: Including race can help analyze potential racial wage disparities.
+
+### Missing data
+
+Next let's check for missing data in our dataset. 
+
+```{r}
+# Plotting the missing plot for visualization
+salary |> 
+  vis_miss()
+```
+
+As we can see in our missing plot, there are only a few missing data exists in `Salary`, `Age`, and `Years.of.Experience`, which in total are less than 0.1% of the data, suggesting that the data collecting process is thorough and well-organized. Following is a table shows the detailed counts and percentage of missing data.
+
+```{r}
+# Counting of missing data for each variables
+count_mis_data <- salary |> 
+  is.na() |> 
+  colSums()
+
+# Calculate the percentage of missing for each variables
+pct_mis_data <- (count_mis_data / nrow(salary)) * 100
+
+# Format the percentage as a string with the % symbol
+pct_mis_data_formatted <- sprintf("%.4f%%", pct_mis_data)
+
+# Combine into a dataframe
+mis_data <- data.frame(
+  Count = count_mis_data,
+  Pct_of_missing = pct_mis_data_formatted
+)
+
+# Rank from highest count to lowest
+mis_data <- mis_data[order(-mis_data$Count), ]
+
+# View the table
+mis_data |> 
+  kable("html")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "200px")
+
+```
+
+According to the table, 5 salary data are missing which counts for 0.075% of the overall data. 3 `Years.of.Experience` data are missing (0.045%). 2 `Age` data are missing (0.029%). Since there are only 10 (0.149%) missing data points given that we have 6704 observations in total. Given such small percentage of of missing data, one simple straightforward approach is to removed those observations that are related to missing data, ensuring that the analysis is only conducted of fully observed data, which avoids any potential imputation-related errors. Otherwise, we might need to impute those missing data, but imputation may leads to further bias and assumptions, In addition, imputation methods might require more detailed justification and validation. As a result, for this dataset, I will exclude those observations which contains missing values.
+
+```{r}
+# Exclude rows that have missing data in ANY variable
+salary <- na.omit(salary)
+
+# Check for dimension
+dim(salary)[1]
+```
+
+As shown above, the total observation reduces from 6704 to 6699, so we totally excluded 5 observations, indicating that some of those five observations have more than one missing values
+
+Now we have deleted all the missing values. Since our predictors are mainly consist of categorical predictors, so let's 
+start tidying categorical predictors.
+
+### Tidying Categorical Predictors
+
+#### Gender
+First let's check if there are any data coding inconsistency, because for example if "Male" are enter as "male" for some observations, there will be extra unnecessary levels if we directly encoding it. We need to make sure each factor uses consistent coding for different levels.
+
+```{r}
+# Check the coding for Gender 
+table(salary$Gender)
+```
+
+There are three different types of coding for Gender, so we do not need to make a change.
+
+#### Education Level
+```{r}
+# Check the coding for Education Level 
+table(salary$Education.Level)
+```
+
+As we can see, there is 1 Education level is missing but entered as blank space, which we fail to identify when we plot the missing chart. Also, there are only 4 educations levels in total, but there are 8 different levels shown in our dataset. Specifically, there are two ways for coding Bachelor, two ways for Masters, and two way for coding PhD. So let's clean them up.
+
+```{r}
+# Combine different Education levels.
+# Combine "Bachelor's" and "Bachelor's Degree" as "Bachelor"
+salary$Education.Level[salary$Education.Level %in% c("Bachelor's", "Bachelor's Degree")] <- "Bachelor"
+
+# Combine "Master's" and "Master's Degree" as "Master"
+salary$Education.Level[salary$Education.Level %in% c("Master's", "Master's Degree")] <- "Master"
+
+# Combine "Master's" and "Master's Degree" as "Master"
+salary$Education.Level[salary$Education.Level %in% c("phD", "PhD")] <- "PhD"
+
+# Filter out that 1 observation with empty education level
+salary <- salary |> 
+  filter(Education.Level %in% c("Bachelor", "High School", "Master", "PhD"))
+
+# Check for the coding for Education Level again
+table(salary$Education.Level)
+```
+
+#### Country
+```{r}
+# Check the coding for Country 
+table(salary$Country)
+```
+
+There are five different levels for Country, and there are no extra level. Let's proceed to check Race.
+
+#### Race
+```{r}
+# Check the coding for Race 
+table(salary$Race)
+```
+
+There are total 10 different race in our dataset. No extra level observed, so we don't need to make any change.
+
+#### Job Title
+
+Last, it comes to the hardest part, which is checking the human entered text: Job Title.
+```{r}
+# Check the coding for Job Title 
+table(salary$Job.Title) |> 
+  kable("html")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "200px")
+
+nrow(table(salary$Job.Title))
+```
+
+There are in total 191 different types of Job Title in our dataset. It's worth noting that there are some inconsistencies in the naming. For example, there are titles like "Software Engineer Manager" and "Software Manager", or "Front end Developer" and "Front End Developer". These might represent the same roles but are named differently due to typos or differences in naming conventions. As a result, it is not a good idea to directly encode each different title as a unique level. Instead, before proceeding with analysis or modeling, we need cleaning and standardizing these job titles to ensure consistency. This will help reduce dimensionality when encoding the Job Title. It will also provide clearer insights when doing exploratory data analysis. Let's begin.
+
+First, we will convert all the Job Titles into lowercase. This will ensure that "Front end Developer" and "Front End Developer" are treated the same. 
+
+```{r}
+salary$Job.Title <- tolower(salary$Job.Title)
+```
+
+Second, we could remove the leading or trailing white spaces which can cause two identical titles to be treated differently.
+
+```{r}
+salary$Job.Title <- trimws(salary$Job.Title)
+```
+
+In computer science and statistics, the Jaro–Winkler distance is a measure of similarity between two strings. Next we will use Jaro–Winkler distance to try exploring similar between Job titles.
+
+```{r}
+# Get Job Titles in the dataset
+unique_titles <- unique(salary$Job.Title)
+
+# Calculate a Jaro_Winkler similarity matrix
+distance_matrix <- stringdist::stringdistmatrix(unique_titles, unique_titles, method = "jw")
+
+# Visualize the distance matrix
+distance_matrix |> 
+  kable("html")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "200px")
+
+# Set a threshold for considering titles as similar
+threshold <- 0.12 # here we only consider two string is similar if their distance is less than 0.1
+
+# Identify rows and columns for string pairs in the distance matrix with distance below the threshold
+similar_titles <- which(distance_matrix < threshold & distance_matrix > 0, arr.ind = TRUE) 
+
+# Retrieve the Job Titles back according to rows and columns
+similar_title_pairs <- data.frame(Title1 = unique_titles[similar_titles[,1]], 
+                                 Title2 = unique_titles[similar_titles[,2]])
+
+# Visualize the similar Job Titles
+similar_title_pairs |> 
+  kable("html")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "200px")
+
+# Remove same rows with only order differences
+similar_title_pairs <- similar_title_pairs %>%
+  rowwise() %>%
+  # make sure Title1 column only contains minimum string, and Title2 only contain maximum string
+  mutate(Title1 = min(Title1, Title2),
+         Title2 = max(Title1, Title2)) %>%
+  ungroup()
+
+# filter out duplicate rows 
+similar_title_pairs <-  similar_title_pairs[similar_title_pairs$Title1 != similar_title_pairs$Title2, ]
+
+similar_title_pairs |> 
+  kable("html")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "200px")
+```
+
+From the table of similar `Job.Title` shown above, we can see that there are many `Job.Title` pairs that only have slight difference. For example, "social media man" and "social media manager" or "customer success manager" and "customer success rep". Besides, the main similarities came from the slight difference in the prefix of the `Job.Title`, like "junior data scientist" and "senior data scientist". Another important thing worth noticing is the difference in the naming convention of "junior" and "juniour", So let's first consistent the naming of "junior" and "representative"
+
+```{r}
+# Convert "juniour" to "junior"
+salary$Job.Title <- gsub("juniour", "junior", salary$Job.Title, ignore.case = TRUE)
+
+# Convert "representative" to "rep"
+salary$Job.Title <- gsub("representative", "rep", salary$Job.Title, ignore.case = TRUE)
+
+# View the dimension left for Job Title
+nrow(table(salary$Job.Title))
+
+table(salary$Job.Title) |> 
+  kable("html")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "200px")
+```
+
+It seems that applying basic standardization to `Job.Title` could not significantly reduce its dimension. As shown in the table above, there are still 187 different type of `Job.Titles` left. This it may due to the fact that the dataset might already been cleaned by the data recorder or publisher on Kaggle. In order to further reduce the dimension of `Job.Title`, let's categorize the `Job.titles` into different industries using key words. By reviewing the `Job.Title` table shown above, there seems have 7 main different types of industries or areas in our dataset: Tech/Engineering, Hr/Management, Finance, Marketing/Sales, Research/Analysis, Customer/Service, and Design/Creative. For each `Industry`, we will define a list of keywords, then we will group the 'Job.Title' into different `Industry` according to the keyword contained in the string of `Job.Title`. 
+
+
+```{r}
+# Create a function to categorize the Job title according to key words
+categorize_title <- function(title) {
+  title <- tolower(title)
+  # Define keywords for each industry
+  tech_terms <- c("software", "developer", "engineer", "tech", "it", "data", "system", "web", "ux", "ui")
+  hr_management_terms <- c("manager", "executive", "director", "lead", "chief", "head", "vp", "coordinator", "ceo",
+                        "administrative", "hr", "human resources", "recruiter", "talent", "training", "officer")
+  finance_terms <- c("finance", "accountant", "financial", "audit", "tax", "treasury")
+  marketing_terms <- c("marketing", "market", "sales", "brand", "product", "advertising", "content", "seo", "social media",
+                       "development")
+  research_terms <- c("research", "scientist", "analyst")
+  service_terms <- c("customer", "support", "service", "client", "consultant", "receptionist", "delivery")
+  creative_terms <- c("design", "creative", "graphic", "art", "writer", "editor", "content", "journalist")
+  
+  # Match job title to industry based on keywords
+  if (any(str_detect(title, service_terms))) {
+    return("Customer/Service")
+  } else if (any(str_detect(title, finance_terms))) {
+    return("Finance")
+  } else if (any(str_detect(title, creative_terms))) {
+    return("Design/Creative")
+  } else if (any(str_detect(title, marketing_terms))) {
+    return("Marketing/Sales")
+  } else if (any(str_detect(title, tech_terms))) {
+    return("Tech/Engineering")
+  } else if (any(str_detect(title, research_terms))) {
+    return("Research/Analysis")
+  } else if (any(str_detect(title, hr_management_terms))) {
+    return("Hr/Management")
+  } else {
+    return("Other")
+  }
+}
+
+# Add the Industry Predictor into the dataset
+salary <- salary |> 
+  mutate(Industry = sapply(Job.Title, categorize_title))
+
+# Check for how many result of categorized Job Titles
+table(salary$Industry)
+
+# Visualize the Job Title against Classified Industry
+salary |> 
+  select(Job.Title, Industry) |> 
+  kable("html")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "200px")
+
+```
+
+As shown in the tables above, all the `Job.Title` are classified into 7 different `Industry` or areas. For example, "software engineer" and "data analyst" is classified as "Tech/Engineering"; "senior manager", "ceo", or "Junior hr generalist" is classified as "Hr/Management"; "marketing analyst" and "sales associate" is classified as "Marketing/Sales"; "senior scientist" and "research scientist" is classified as "Research/Analysis"; "senior financial analyst" and "junior accountant" is classified as Finance; "graphic designer" and "junior designer" is classified as "Design/Creative". However, there are still a significance class imbalance between different `Industry`. For example, there are only 82 "Customer/Service" related `Job.Title`, and only 188 "Design/Creative" related `Job.Titles`. In contrast, there are  3636 `Job.Title` in the "Tech/Engineering" `Industry`.
+
+As you might find out, there exits an order when we doing classification. There are `Job.Title` like "Financial Manager", which should be mutually include in "Hr/Management" and "Finance". How should we deal with this? The rule is I will prioritize classifying `Job.Title` as different general industries instead of position difference. For example. I will prioritize classifying "Financial Manager" as "Finance" and "software project manager" as "Tech/Engineering" instead of "Hr/Management". Hence, will put "Hr/Management" in the end so that general area difference be prioritized.
+
+The dataset lacks of many other occupation besides the 7 areas that we classified. This is one of the drawback of our dataset that the survey seems conducted mainly in Tech industry. In addition, my personal bias and ordering preference also affects the classification to large extend. However, samples for `Industry` in areas like Customer/Service, Design/Creative, Finance are still too small comparing to Tech/Engineering and Marketing/Sales. We might need to upsample those `Industry`  with overly small number of observation when we creating our recipe for our model. Also, since there are 187 levels for `Job.Title`, we will use classified predictor `Industry` as instead, which only have 7 levels, but `Job.Title` can still provides us important insight when doing exploratory data analysis.
+
+### Factorizing Categorical Predictors 
+Last, let's factorize all the string predictors, which will ease our model fitting process. 
+```{r}
+# Changing categorical predictors to factors
+salary$Gender <- as.factor(salary$Gender)
+salary$Education.Level <- as.factor(salary$Education.Level)
+salary$Job.Title <- as.factor(salary$Job.Title)
+salary$Country <- as.factor(salary$Country)
+salary$Race <- as.factor(salary$Race)
+salary$Industry <- as.factor(salary$Industry)
+
+# Visualize the cleaned dataset
+salary |> 
+  kable("html")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "200px")
+```
+
+Now, our dataset looks clean and tidy, let's dive deeper into `salary` to uncover deeper insights.
+
+## Exploratory Data Analysis
+### Variable Correlation Plot
+we could use a correlation plot to help us understand the relationship between the numeric variable. In our dataset, there are three numeric variables: Salary, Age, and Years of Experience. Hence, there we will only need to focus on examining three main relationship. 
+
+```{r}
+salary |>  
+  # Select numerical variables
+  select(where(is.numeric)) |>  
+  # Calculate correlation matrix
+  cor() |> 
+  # Make the correlation plot
+  ggcorrplot(hc.order = TRUE, outline.col = "white", ggtheme = ggplot2::theme_gray, colors = c("#6D9EC1", "white", "#E46726"), lab = TRUE, lab_col = "white")
+```
+
+The correlation heatmap shown above is very intuitive to me. First we can see that `Age` and `Years.of.Experience` has undeniable strongest positive correlation of 0.94, since people tend to have a longer working experience in a field and accumulate more professional experience as they age. The second strongest relationship is the positive correlation of 0.81 between `Salary` and `Years.of.Experience.` This also makes perfect sense to me because experience equips individuals with enhanced skills, knowledge, and expertise, making them more valuable to employers who are willing to pay higher for their capabilities and insights. Last, `Age` and `Salary` has a positive correlation of 0.73. Although in some industries which prioritize newer skill set, people tends to accumulate more experience in their field which lead to higher salary since there is a strong positive correlation of 0.94 as mentioned in the beginning.
+
+One important indicated by the correlation matrix is that there is a strong collinearity exits between two of our predictors: `Age` and `Years.of.Experience.` Collinearity refers to the situation in which two or more predictors are closely related with each other, which is shown by the following plot. 
+
+```{r}
+# visualize the collinearity between Age and Years of Experience
+ggplot(data = salary, aes(x = Age, y = Years.of.Experience)) +
+  geom_point( alpha = 0.1) +  
+  geom_smooth(method = "lm", se = FALSE, color = "red") + 
+  labs(title = "Collinearity between Age and Years of Experience",
+       x = "Age",
+       y = "Years of Experience",
+       color = "Salary") +
+  theme_linedraw()
+```
+
+As we can see from the scatter plot, there is a clear linear relationship between `Age` and `Years.of.Experience.` There are some divergence for observations with age higher than 50. This may be cause by the stagnation of year of experience due to retirement.   
+
+Given such high positive correlation of 0.94, we cannot uses both predictors when we fitting models, because the performance of models like linear regression and polynomial regression, which we are going to fit, will significantly be affected by collinearity. It can make the coefficient estimates unstable, inflate the variance of the coefficient estimates, and make the model interpretation challenging. Therefore, we could to do Principe Component Analysis prior to model fitting, which helps us to encapsulate the useful information between `Age` and `Educational.Level` into 1 priciple component (`PC1`) while reducing the noise. 
+
+### Salary 
+As our outcome, let's first explore its distribution.
+```{r}
+# Plot the histogram for visualizing the distribution of salary
+salary |> 
+  ggplot(aes(x = Salary)) +
+  geom_histogram(binwidth = 10000, fill="grey", color="black", alpha = 0.5) +
+  geom_vline(xintercept = median(salary$Salary),
+             col = "red",
+             lwd = 1) + 
+  annotate("text", x = median(salary$Salary) * 1.41, 
+           y = 570, 
+           label = paste("Median =",
+                         comma(median(salary$Salary))),
+           col = "red",
+           size = 4) +
+  geom_vline(xintercept = mean(salary$Salary), 
+             col = "blue",
+             lwd = 1) + 
+  annotate("text", x = mean(salary$Salary) * 1.4, 
+           y = 520,
+           label = paste("Mean =",
+                        comma(round(mean(salary$Salary),1))),
+           col = "blue",
+           size = 4) +
+  xlab("Annual Salary in USD") +
+  ylab("Number of Individuals") +
+  ggtitle("Distribution of Salary")+
+  scale_x_continuous(labels = comma, breaks = seq(from = 0, to = 250000, by = 50000)) + 
+  theme_linedraw()
+```
+
+The Salary range from around 0 to 250,000. The over all distribution looks like a bimodal distribution, which has two peaks. One is centered around 50,000, and the other peak is centered around 180,000. The median is 115,000 and mean 115,327, which are very close to each other, suggesting that the salary distribution in our dataset is approximately symmetric. 
+
+### Age
+
+```{r}
+salary |> 
+  ggplot(aes(x = Age)) +
+  geom_histogram(binwidth = 1, fill="grey", color="black", alpha = 0.5) +
+  geom_vline(xintercept = median(salary$Age),
+             col = "red",
+             lwd = 1) + 
+  annotate("text", x = median(salary$Age) - 4, 
+           y = 560, 
+           label = paste("Median =",
+                         comma(median(salary$Age))),
+           col = "red",
+           size = 4) +
+  geom_vline(xintercept = mean(salary$Age), 
+             col = "blue",
+             lwd = 1) + 
+  annotate("text", x = mean(salary$Age) + 3.5, 
+           y = 560,
+           label = paste("Mean =",
+                        comma(round(mean(salary$Age),1))),
+           col = "blue",
+           size = 4) +
+  xlab("Age") +
+  ylab("Number of Individuals") +
+  ggtitle("Distribution of Age")+
+  theme_linedraw()
+```
+
+The distribution of `Age` looks like a right skewed normal distribution with mean of 34. Most individuals are around 25 to 35 years old. The peak is at `Age` of 27, which is more than 500 individuals (7%). 
+
+```{r}
+salary |> 
+  ggplot(aes(x = Age, y = Salary)) +
+  geom_point(alpha = 0.3) +
+  labs(title = 'Salary by Age',
+       x = 'Age',
+       y = 'Salary') +
+  theme_linedraw()
+```
+As the chart shown above, there seem to be a positive relationship between `Age` and `Salary`. The relationship looks like linear until `Age` is higher than around 45. This are two branches after 45. Also, the variance for `Salary` is higher for individuals around 23 and 35 years old, since there is group of people earn significantly higher than the majorities.
+
+### Gender 
+Next, let's explore the `Gender` predictor in out dataset. 
+
+```{r}
+# Bar chart for Gender
+salary |> 
+ggplot(aes(x = Gender, fill = Gender)) +
+  geom_bar(color = "black", alpha = 0.5) +
+  scale_fill_hue(c = 100) +
+  labs(title = "Number of Each Gender",
+       x = "Gender",
+       y = "Number of Individuals") +
+  scale_fill_hue(c = 80) +
+  theme_linedraw()
+
+# Number of Individuals for each Gender
+table(salary$Gender)
+```
+
+There are three types of `Gender` in our dataset: Female, Male, and other. As shown in the bar plot below, the distribution between Female and Male are pretty balance. There are 3013 females and 3671 male in our dataset, which is about 80% of male. In contrast, there only 14 other gender, which is a significance class imbalance. Unfortunately, since the samples for other gender are highly sparse in this specific dataset, directly upsample is not a sensible choice as it will be highly unrepresentative. Hence, we might need to drop those 14 observations. 
+
+```{r}
+salary |> 
+  ggplot(aes(x = Gender, y = Salary, fill = Gender)) +
+  geom_boxplot(alpha = 0.5) + 
+  labs(title = "Salary Distribution by Gender",
+       x = "Gender",
+       y = "Salary") +
+  stat_summary(fun="mean", color = "black") +
+  scale_fill_hue(c = 80) +
+  theme_linedraw()
+```
+
+The overall salary distribution of between three genders are relatively similar. The interquartile range of male is slightly higher than the female. Both female and male have a wide range of `Salary`, with the range of `Salary` for male being the widest, meaning that variance of `Salary` for male are higher. The black dots represents the mean `Salary` for each gender. Other gender has the highest mean `Salary`, which is slightly higher than the salary of Male. The mean `Salary` is higher than the mean `Salary` of female. Mean and median to each other for male and female, meaning that the distribution of salary for female and male are likely to be symmetric. However, the median for other gender is largely higher than the mean, indicating the distribution is skew to the lower salary.
+
+Last, let's drop those 14 level of `Gender` as mentioned.
+```{r}
+# Filter out those gender with level "other"
+salary <- salary |>
+  filter(Gender %in% c("Female", "Male"))
+
+# Drop unused level "other"
+salary$Gender <- droplevels(salary$Gender)
+
+# Check the levels left
+levels(salary$Gender)
+```
+
+### Educational Level
+
+```{r}
+salary |> 
+ggplot(aes(x = reorder(Education.Level, -table(Education.Level)[Education.Level]), fill = Education.Level)) +
+  geom_bar(color = "black", alpha = 0.5) +
+  labs(title = "Number of Individuals for Each Educational Level",
+       x = "Educational Level",
+       y = "Number of Individuals") +
+  scale_fill_hue(c = 80) +
+  theme_linedraw()
+```
+
+As shown by the bar chart, the most common `Education.Level` in the dataset is Bachelor's Degree (around 3000) and Master's Degree, whcih is ollowed by PhD, and high school degree is least common (around 500). This indicates that the majority of individuals in the dataset have received high level of education.
+
+
+```{r}
+salary |> 
+ggplot(aes(x = reorder(Education.Level, Salary, FUN = median), y = Salary, fill = Education.Level)) +
+  geom_boxplot(color = "black", alpha = 0.5) +
+  stat_summary(fun="mean", color = "red", size = 0.35) +
+  labs(title = "Salary Distribution by Educational Level",
+       x = "Educational Level",
+       y = "Salary") +
+  scale_fill_hue(c = 80) +
+  theme_linedraw()
+```
+
+The box plot shown above is ordered from lowest to highest according to median `Salary.` Black line represents median and red dots represents mean. PhD holders have the highest median and mean, which skews to the lower salary. There are few outlines in the with `Salary` below round 75,000. Master holders have second highest median and range with a symmetric distribution. Next, Bachelor holders have the widest range of `Salary`. It ranges from around 0 to 225,000 regardless the outliers. Individuals with only High school degree has the lowest median, but there are many high outliers. The result shows that `Salary` is highly correlated with `Education.Level`.
+
+### Job Title and Industry
+```{r}
+# Make Box plot to visualize the salary distribution against Industry
+salary |> 
+  ggplot(aes(x = reorder(Industry, Salary, FUN = median), y = Salary, fill = Industry)) +
+  geom_boxplot(alpha = 0.5) + 
+  labs(title = "Salary Distribution by Industry",
+       x = "Industry",
+       y = "Salary") +
+  # Rotate the label to prevent overlapping 
+  scale_x_discrete(guide = guide_axis(angle = 30)) +
+  scale_fill_hue(c = 80) +
+  theme_linedraw()
+```
+
+Occupations related to finance industry, Tech/Engineering Industry, and Resarch/Aanalysis Areas have the highest median `Salary`. Finance occupations have the widest interquartile range, while Tech/Engineering occupations have widest min and max range. There exists many low outliers for Rearch/Analysis occupations and high outliers for Customer/service occupations. In academia or certain industries, Research role might not pay as well at the entry-level. For instance, PhD researchers or junior analysts might have salaries on the lower end of the spectrum. Research funding also varies significantly according to field and institutions. Next, let's see how many individuals there are for each Industry.
+
+```{r}
+salary |> 
+  ggplot(aes(x = reorder(Industry, Industry, function(x) + length(x)), fill = Industry)) +
+  geom_histogram(stat="count", color = "black", alpha = 0.5) +
+  labs(title = "Class Imbalance between Industries",
+       x = "Industry",
+       y = "Number of individuals") +
+  geom_text(stat='count', aes(label=after_stat(count)), vjust=-0.25) +
+  scale_x_discrete(guide = guide_axis(angle = 30)) +
+  scale_fill_hue(c = 80) +
+  theme_linedraw()
+```
+
+As we can see, there is a significant class imbalance even after we classified 187 `Job.Title` into 7 `Industry`. The smallest class, which is Customer/Service, is only 2.2% of the largest class `Tech/Engineering`. We need to upsample those `Industry` observation when we creating the recipe. Last but no least, let's explore the `Job.Title` that pays the most.
+
+```{r}
+# Rank the job titles by average salary
+top20_avg_salary <- salary |> 
+  group_by(Job.Title) |> 
+  summarise(AvgSalary = mean(Salary, na.rm = TRUE)) |> 
+  arrange(-AvgSalary) |> 
+  head(20)
+
+# Plot a bar chart to visualize the top 10 highest paying jobs
+top20_avg_salary |> 
+  ggplot(aes(x = reorder(Job.Title, AvgSalary), y = AvgSalary, fill = AvgSalary)) + 
+  geom_bar(stat = "identity", alpha = 0.87) +
+  labs(title = "Top 20 Job Titles by Average Salary",
+       x = "Job Title",
+       y = "Average Salary") +
+  coord_flip() +
+  theme_linedraw()
+```
+
+As we can see, the all the top paying `Job.Title` contains keywords like officer, director, manager, chief, and VP. These are all top tier positions in a company or institution, which makes common sense that higher the position higher the `Salary`. 
+
+### Country and Race
+
+Last, let's explore `Country` and `Race` predictors. 
+
+```{r}
+# Make Box plot to visualize the salary distribution against Country
+salary |> 
+  ggplot(aes(x = reorder(Country, Salary, FUN = median), y = Salary, fill = Country)) +
+  geom_boxplot(alpha = 0.5) + 
+  labs(title = "Salary Distribution by Country",
+       x = "Country",
+       y = "Salary") +
+  stat_summary(fun="mean") +
+  # Rotate the label to prevent overlapping 
+  scale_x_discrete(guide = guide_axis(angle = 30)) +
+  scale_fill_hue(c = 80) +
+  theme_linedraw()
+```
+
+According to the box plot, the `Salary` distribution are very similar across five countries, with similar mean, median, and interquartile range. Next let's check `Salary` against `Race`. 
+
+```{r}
+# Make Box plot to visualize the salary distribution against Race
+salary |> 
+  ggplot(aes(x = reorder(Race, Salary, FUN = median), y = Salary, fill = Race)) +
+  geom_boxplot(alpha = 0.5) + 
+  stat_summary(fun="median") +
+  labs(title = "Salary Distribution by Race",
+       x = "Race",
+       y = "Salary") +
+  # Rotate the label to prevent overlapping 
+  scale_x_discrete(guide = guide_axis(angle = 30)) +
+  scale_fill_hue(c = 80) +
+  theme_linedraw()
+```
+
+We have 10 different `Race` in our dataset. There are no significant distinction between the `Salary` distribution among different `Race`. However, by ranking with median `Salary`, we can see white people have highest salary, while Hispanic have the lowest salary.
+
+# Model Setup
+
+After exploring and understanding the dataset through EDA, we now are equipped with valuable insight and a tidy dataset. This positions us perfectly to transition into the next crucial phase: setting up our models. 
+
+## Data Split
+
+First and foremost, we need to do split our dataset into two part: training set and testing set. It is crucial for model fitting because using the entire dataset to fit a predictive model is a terrible idea. When we fitting models, the training error will keep decreasing if we keep increase the model flexibility, which leads to overfitting. A model is overfitted when it perform perfectly well training but have poor predictive power. Hence, training error is not a good estimator of testing error. 
+
+![](https://coding-maniac.com/sites/default/files/inline-images/Screen%20Shot%202017-08-19%20at%2021.48.58.png)
+
+As a result, if we use the entire dataset for training, what data should we use for accessing the performance of our model? This is why it is important to perform initial split before fitting out model. The models will be trained, a cross-validated, and selected using the training set. The testing set will remain untouched until we choose the best model for "Final Examination". I will divided 75% of data into training set and the rest 25% data into testing set, so the Training to Testing ratio is 3:1. When splitting, I will stratify on `Salary`, which is our outcome. This will ensure both training and testing have similar Salary distribution. To address reproducibility concerns, I have already set a seed in the beginning of the project.
+
+```{r}
+# Split the dataset (3:1) into training and testing
+salary_split <- initial_split(salary, prop = 0.75, strata = Salary)
+salary_train <- training(salary_split)
+salary_test <- testing(salary_split)
+
+# Number of observations in the training set
+paste("Num Training:", nrow(salary_train))
+
+# Number of observations in the Testing set
+paste("Num Testing:", nrow(salary_test))
+
+# Verify the splitting ratio
+paste("Split ratio:", round(nrow(salary_train)/nrow(salary_test),3))
+```
+As we can see, the `salary_train` now has 5021 observations, and  `salary_test` has 1677. The ratio is 2.994, which is approximately 3:1, meaning other data is split correctly. Now, let's proceed to Recipe Creation.
+
+## Create Recipe
+
+In the data tidying and exploration sections, we found that there significant class imbalance for categorical predictors in `Gender` and `Industry`. Previously, we dropped "other" class in `Gender` due to the fact that the data are too spare, only 14, to be resampled. Now, we also need to upsample class like Customer/Service, Design/Creative, and Fiance in `Industry`. In addition, the correlation matrix shows that there is a collinearity between `Age` and `Year.of.Experience`, so we need to do principle component analysis (PCA) on these two predictors to reduce them to one principle component, extracting useful informations. In order to do PCA, we also need to normalize those two numerical predictors we have first. Finally, we also need to specify the outcome and predictor variables for our model. These are things we need to do for each model. It seem a lot of job right? Not really, since all above conditions stay the same for each model, we could specify our condition by creating a recipe once so that each model will train follow this recipe.
+
+```{r}
+# Create a demo recipe
+salary_recipe_demo <- 
+  recipe(Salary ~ Age + Gender + Education.Level + Years.of.Experience + Country + Race + Industry, data = salary_train) |> 
+  # Upsamples the levels in Industry
+  step_upsample(Industry, over_ratio = 0.2, skip = FALSE) |> 
+  # Dummy code all categorical predictors
+  step_dummy(all_nominal()) |> 
+  # Normalize all numeric predictors
+  step_normalize(all_predictors()) |> 
+  # Perform PCA on Age and Years of Experience to extract 1 principle component
+  step_pca(Age, Years.of.Experience, num_comp = 1)
+
+# Prep and bake with training data
+processed_salary_train <- salary_recipe_demo |> 
+  prep() |>
+  bake(new_data = salary_train)
+
+# Visualize the processed training data
+processed_salary_train |> 
+  kable("html")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "200px")
+
+# Compare processed and unprocessed training data
+tibble(
+  metric = c("num_obs", "num_var"),
+  Old = dim(salary_train),
+  New = dim(processed_salary_train),
+)
+```
+
+After processing our training dataset following the instruction of recipe, our training data has upsampled from 5011 to 6730 observations. Numerical predictors `Age` and `Years.of.Experience` are combined into `PC1` as shown in the table above. All  categorical predictors are dummy coded. Specifically, we now have 25 variables in total: 1 dummy variable for `Gender`, 3 for `Education.Level`,  4 for `Country`, 9 for `Race`, 6 for `Industry`, 1 for `PC1`, and 1 for `Salary`. Now, we check that our recipe works well. Let's create a formal recipe.
+
+```{r}
+# Create a formal recipe
+salary_recipe <- 
+  recipe(Salary ~ Age + Gender + Education.Level + Years.of.Experience + Country + Race + Industry, data = salary_train) |> 
+  # Set skip to true since we don't need to prep and bake our recipe
+  step_upsample(Industry, over_ratio = 0.2, skip = TRUE) |> 
+  # Dummy code categorical predictors
+  step_dummy(all_nominal()) |> 
+  # Normalize all numeric predictors
+  step_normalize(all_predictors()) |> 
+  # Perform PCA 
+  step_pca(Age, Years.of.Experience, num_comp = 1)
+```
+
+## Cross-Validation setup
+We are going to fit different models to training set, but how can we determine which model is the best so that it can be tested on testing set? The answer is by doing cross-validation, specifically, k-fold cross-validation. 
+
+K-fold cross-validation is a type of resampling method. This approach randomly divides the set of observations into k different fold. Holding out one fold as validation set, the rest k-1 fold are used to fit the model, and the held-out fold or validation set is used to compute the Mean Squared Error (MSE). This procedure is then repeated k time. Each times held out a different set as validation set. In the end, we will calculate k different MSE. Then, then k-fold CV estimate is computed by take the average of those k MSE. It is used to estimate the test error associated with a given statistical learning method in order to evaluate its performance (model assessment) or to select the appropriate level of flexibility (model selection). 
+
+Think models as a bunch of students candidates, we want to choose a best student to do the final exam. Now, we have a question bank consist of 100 of questions. We randomly choose 20 of questions out to make a final exam. 80 questions are left for practicing and mock exam. Next, we will take question 1-10 out from those 80 questions to make a mock exam, so 70 question left for students to practice. Then every candidate will first practice on those 70 questions and then take the mock exam, and each candidate will have a score (MSE). After that we will take question 11-20 out out from those 80 questions to make another mock exam again, and repeat the following process one more time. This time every candidate will have a new score. Keep repeating, we will totally be able to make 8 different mock exam (8-fold CV), and every candidate will have 8 different score. We will take the average of those 8 score and then compare the average score of candidates to choose the one with the highest score. This is an analogy about  what we are doing when we performing k-fold CV on models.
+
+![](https://media.giphy.com/media/JRPftUYuIRw3axuh5y/giphy.gif)
+
+Now, let's create 10 different folds using our training set. I will stratify on outcome, `Salary`, to ensure a more balanced resampling. 
+
+```{r}
+# Create a 5 folds cross validation set 
+salary_folds <- vfold_cv(salary_train, v = 10)
+```
+
+Finally, having everything in place, let's begin building our Models!
+
+# Model Building
+
+We are going to build 6 different regression models: Linear Regression, Ridge Regression, Lasso Regression, Elastic Net Regression, K Nearest Neighbors, and Random Forest.
+
+## Creating Workflow
+
+First, we need to creating a workflow for each model with following steps:
+
+1. Create model objects to specify the model engine, mode, and tuning parameter if needed.
+
+2. Add model and recipe into the workflow.
+
+<b>Linear Regression</b>
+
+As we all know, Linear Regression is like the 'starter pack' of statistical machine learning. It's the first thing most of us learn when diving into this world. It is used to predict a quantitative response variable based on one or more predictor variables by assuming a linear relationship between response and predictors. The goal is to find the best fitting line by minimizing the sum of squared residual. 
+
+```{r}
+# Create a linear regression model object
+lm_mod <- linear_reg() |> 
+  set_mode("regression") |> 
+  set_engine("lm")
+
+# Add linear regression model object and recipe into the workflow 
+lm_wkflow <- workflow() |> 
+  add_model(lm_mod) |> 
+  add_recipe(salary_recipe)
+```
+
+<b>Lasso Regression</b>
+
+Lasso Regression is a special linear regression model that applies L1 regularization (L1 `penalty`) to encourage sparsity in the coefficient estimates by sending coefficients to zero exactly. This regularization method can lead to some coefficients being exactly zero, effectively performing feature selection. 
+
+Hence, for Lasso regression we need to tune `penalty`, a hyperparameter that controls the strength of the regularization applied to the coefficients. A higher value will shrink more coefficients to zero. Setting the `mixture` to 1 ensures that 100% of the Lasso penalty is applied, confirming that we are using Lasso Regression.
+
+```{r}
+# Create a lasso regression model object
+lr_mod <- linear_reg( mixture = 1,
+                      penalty = tune()) |> 
+  set_mode("regression") |> 
+  set_engine("glmnet")
+
+# Add lasso regression model object and recipe into the workflow 
+lr_wkflow <- workflow() |> 
+  add_model(lr_mod) |> 
+  add_recipe(salary_recipe)
+```
+
+<b>Ridge Regression</b>
+
+Ridge Regression is similar as Lasso regression but applies regularization (L2 `penalty`). Different from Lasso Regression, rather than shrink the coefficients to exact zero, Ridge Regression shrink the coefficients towards zero, ensuring a more balanced model that incorporates all predictors while managing multicollinearity and overfitting.
+
+Hence, we need to tune `penalty` and change `mixture` to 0, meaning 0% percent Lasso penalty is applied, and Ridge Regression is used.
+
+```{r}
+# Create a ridge regression model object
+rr_mod <- linear_reg( mixture = 0,
+                      penalty = tune()) |> 
+  set_mode("regression") |> 
+  set_engine("glmnet")
+
+# Add ridge regression model object and recipe into the workflow 
+rr_wkflow <- workflow() |> 
+  add_model(rr_mod) |> 
+  add_recipe(salary_recipe)
+```
+
+<b>Elastic Net Regression</b>
+
+Elastic Net regression is a linear regression model that combines the regularization method (L1 and L1 as mentioned above) of both Lasso and Ridge regression. By mixing these two methods, Elastic Net model could balance the strengths and weaknesses of Lasso and Ridge, especially in situations where there are many correlated predictors.
+
+![](https://miro.medium.com/v2/resize:fit:1400/format:webp/1*nrWncnoJ4V_BkzEf1pd4MA.png)
+
+As a combination of Lasso and Ridge regression, we need to add one more tuning parameter, `mixture`.
+
+```{r}
+# Create a elastic net regression model object
+en_mod <- linear_reg( mixture = tune(),
+                      penalty = tune()) |> 
+  set_mode("regression") |> 
+  set_engine("glmnet")
+
+# Add elastic net regression model object and recipe into the workflow 
+en_wkflow <- workflow() |> 
+  add_model(en_mod) |> 
+  add_recipe(salary_recipe)
+```
+
+<b>K Nearest Neighbors</b>
+
+K Nearest Neighbors (KNN) is a non-parametric method used for classification and regression tasks. It operates by considering the proximity of data points in the feature space.
+
+We need to tune `neighbors` for KNN model. This hyperparameter determines the number of nearest data points (or neighbors) that the algorithm should consider when making a prediction. For regression, the numeric prediction is calculated by taking the average of neighbors' outcome.
+
+![](https://images.datacamp.com/image/upload/v1686762755/Gif_from_eunsukim_me_2a1fc85ad5.gif)
+
+```{r}
+# Create a knn model object
+knn_mod <- nearest_neighbor(neighbors = tune()) |> 
+  set_mode("regression") |> 
+  set_engine("kknn")
+
+# Add knn model object and recipe into the workflow 
+knn_wkflow <- workflow() |> 
+  add_model(knn_mod) |> 
+  add_recipe(salary_recipe)
+```
+
+
+<b>Random Forest</b>
+
+A random forest is an ensemble learning method that constructs multiple decision trees on bootstrapped samples from a dataset. By averaging the predictions of individual trees, it reduces overfitting problem of single decision trees. The uniqueness of random forests lies in its feature selection randomness at each tree split, ensuring diverse trees and enhancing overall performance. For classification, the model outputs the class chosen by the majority of trees, while for regression, it returns the average prediction. This ensemble approach, stacking multiple classifiers, ensures more robust and accurate predictions than individual decision trees.
+
+![](https://miro.medium.com/v2/resize:fit:1400/format:webp/1*jE1Cb1Dc_p9WEOPMkC95WQ.png)
+There are 3 hyperparameter we need to tune for Random Forest Model when creating the model object:
+
+1. `trees`: this parameter denotes the number of trees in the random forest. An ensemble of multiple trees helps in aggregating diverse predictions.
+
+2. `mtry`: during the construction of each tree, `mtry` specifies the number of predictors randomly sampled as candidates from the total predictors pool, and only the predictors in that sample are considered to be split on.
+
+3. `min_n`: representing the minimum number of data values required for a tree node before to be split further, `min_n` acts as a control mechanism to prevent overfitting.
+
+```{r}
+# Create a random forest model object
+rf_mod <- rand_forest( mtry = tune(), 
+                       trees = tune(), 
+                       min_n = tune()) |> 
+  set_engine("ranger", importance = "impurity") |> 
+  set_mode("regression")
+
+# Add random forest model object and recipe into the workflow 
+rf_wkflow  <- workflow() |> 
+  add_model(rf_mod) |> 
+  add_recipe(salary_recipe)
+```
+
+## Creating Tuning Grid
+
+As you might notice, we have a many hyperparameters to tune, so let's specifies the range and levels for the each hyperparameter by creating tuning grids. 
+
+<b> Grid for Lasso Regression and Ridge regression </b>
+```{r}
+# Lasso Regression and Ridge regression shares the same tuning grid for penalty
+lr_rr_grid <- grid_regular(penalty(range = c(0,20), trans = identity_trans()), levels = 50)
+
+# Visualize the tuning grid for Lasso Regression and Ridge regression
+lr_rr_grid |> 
+  kable("html", align = "l")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "200px")
+```
+
+The range for `penalty` is between 0 and 20 with 50 levels, meaning that there are 50 lasso regression different and 50 ridge regression models with each having a different `penalty` value ranging from 0 to 20. Hence, for each folded set, we will need to fit 100 different models for lasso and ridge regression, and $(50+50) \times 10 = 1000$ models in total during 10 fold cross validation.
+
+<b> Grid for Elastic Net regression </b>
+```{r}
+# Grid for tuning penalty and mixture 
+en_grid <- grid_regular(penalty(range = c(0, 10), trans = identity_trans()), mixture(range = c(0,1)), levels = 10)
+
+# Visualize the tuning grid 
+en_grid |> 
+  kable("html", align = "l")  |> 
+  kable_styling("striped", row_label_position = "l")  |> 
+  scroll_box(width = "100%", height = "200px")
+```
+
+As shown in the table above , the `penalty` range between 0 and 10 with 10 levels, and the `mixture` range between 0 and 1 with 10 levels. There are $10 \times 10 = 100$ hyperparameter combinations for `penalty` and `mixture.` Hence, we need to fit 100 different models for each fold and fit $100 \times 10 = 1000$ models in total during the 10-fold cross validation.
+
+<b> Grid for K Nearest Neighbor </b>
+```{r}
+# Grid for tuning neighbors 
+knn_grid <- grid_regular(neighbors(range = c(1,50)), levels = 50)
+
+# Visualize the tuning grid 
+knn_grid |> 
+  kable("html", align = "l")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "200px")
+```
+
+For KNN model, `Neighbors` range from 1 to 50 with 50 levels, so there are 50 different models to fit for each fold. Hence, in total, we need to fit 500 models in total during 10-fold cross-validation.
+
+<b> Grid for Random Forest </b>
+```{r}
+# Grid for tuning trees, mtry, and min_n 
+rf_grid <- grid_regular(trees(range = c(200,600)), mtry(range = c(1, 5)),  min_n(range = c(10,20)), levels = 5)
+
+# Visualize the tuning grid 
+rf_grid |> 
+  kable("html", align = "l")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "200px")
+```
+
+Random forest is the most computational intensive model. It has three tuning parameter. `treess` ranges from 200 to 600 with 5 levels. One important thing that worth notice is the range of `mtry` go forms 1 to 5 instead of 7, because we have 7 predictors in total. If we range 1 to 7, some of the trees will make the same first split when we use all 7 predictors, so those trees will be highly correlated with each other. Hence, I choose 5 as the maximum, ensuring that not all predictors are sampled during the first split. `min_n` ranges from 10 to 20 with 5 levels. In total, there are $5 \times 5 \times 5 = 5^3 = 125$ different models for each fold to fit, and $125 \times 10 = 1250$ models for 10-fold cross-validation. 
+
+
+## 10-Fold Cross Validation
+
+Having a general recipe, folded training set, workflow for model, and tuning grid for hyperparameters, let's start with 10-fold cross validation.
+
+For the those 5 models which need to be tuned, we first use `tune_grid()` function to do cross validation by applying workflow, folded training set, and tuning grid. After that,  we will create a rds file for each model to save the tuned result in order to avoid rerunning the model which waste a huge amount of time. For example, for my 2018 MacBook pro, it takes approximately 25 minutes to do fit those 1250 different Random Forest models. Note, the following code chuck will not be evaluated because the tuned result is already saved into the rds files. Also, since Linear Regression don't need to be tuned, we will do cross validation using `fit_resamples()` function directly in the second step when we loading the tuned results for the models. 
+
+```{r, eval=FALSE}
+# Linear Regression 
+# No hyperparameter to tune
+
+# Lasso Regression
+lr_tune <- tune_grid(
+  lr_wkflow,
+  resamples = salary_folds,
+  grid = lr_rr_grid
+)
+
+write_rds(lr_tune, file = "/Users/liurongjian/Desktop/PSTAT 131/Final Project/Tuned Models/Lasso Regression.rds")
+
+# Ridge Regression
+rr_tune <- tune_grid(
+  rr_wkflow,
+  resamples = salary_folds,
+  grid = lr_rr_grid
+)
+
+collect_metrics(rr_tune)
+
+write_rds(rr_tune, file = "/Users/liurongjian/Desktop/PSTAT 131/Final Project/Tuned Models/Ridge Regression.rds")
+
+# Elastic Net Regression
+en_tune <- tune_grid(
+  en_wkflow,
+  resamples = salary_folds,
+  grid = en_grid
+)
+
+write_rds(en_tune, file = "/Users/liurongjian/Desktop/PSTAT 131/Final Project/Tuned Models/Elastic Net Regression.rds")
+
+# K Nearest Neighbors
+knn_tune <- tune_grid(
+  knn_wkflow,
+  resamples = salary_folds,
+  grid = knn_grid
+)
+
+write_rds(knn_tune, file = "/Users/liurongjian/Desktop/PSTAT 131/Final Project/Tuned Models/K Nearest Neighbors.rds")
+
+# Random Forest
+rf_tune <- tune_grid(
+  rf_wkflow,
+  resamples = salary_folds,
+  grid = rf_grid
+)
+
+write_rds(rf_tune, file = "/Users/liurongjian/Desktop/PSTAT 131/Final Project/Tuned Models/Random Forest.rds")
+```
+
+Next, let's do cross validation on Linear Regression model and load tuned results from rds files that we created in the previous step.
+
+```{r}
+# Linear Regression
+lm_fit <- fit_resamples(lm_wkflow, resamples = salary_folds)
+
+# Lasso Regression
+lr_tune_res <- read_rds(file = "/Users/liurongjian/Desktop/PSTAT 131/Final Project/Tuned Models/Lasso Regression.rds")
+
+# Ridge Regression 
+rr_tune_res <- read_rds(file = "/Users/liurongjian/Desktop/PSTAT 131/Final Project/Tuned Models/Ridge Regression.rds")
+
+# Elastic Net Regression 
+en_tune_res <- read_rds(file = "/Users/liurongjian/Desktop/PSTAT 131/Final Project/Tuned Models/Elastic Net Regression.rds")
+
+# K Nearest Neighbors
+knn_tune_res <- read_rds(file = "/Users/liurongjian/Desktop/PSTAT 131/Final Project/Tuned Models/K Nearest Neighbors.rds")
+
+# Random Forest 
+rf_tune_res <- read_rds(file = "/Users/liurongjian/Desktop/PSTAT 131/Final Project/Tuned Models/Random Forest.rds")
+```
+
+
+Now we are ready to collect the 10-fold cross-validation result for each model. Let's start by selecting the best tuned model for each types of model based on the highest mean R squared value. The R squared ($R^2$) is a metric for accessing the performance of regression models by tell us the proportion of the variance in the dependent variable that is predictable from the independent variables.
+
+### Cross Validation Result
+
+<b>Linear Regression Cross aalidation Result</b>
+
+```{r}
+# Show the tune result of the Linear Regression model
+lm_cv <- collect_metrics(lm_fit) |> 
+  filter(.metric == "rsq")
+
+lm_cv |> 
+  kable("html", align = "l")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "100px")
+```
+
+<b>Best Tuned Lasso Regression</b>
+
+```{r}
+# Show the best Lasso Regression model with highest mean R squared value
+lr_best <- show_best(lr_tune_res, metric = "rsq", n = 1)
+
+lr_best |> 
+  kable("html", align = "l")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "100px")
+```
+
+<b>Best Tuned Ridge Regression</b>
+
+```{r}
+# Show the best Ridge Regression model with highest mean R squared value
+rr_best <- show_best(rr_tune_res, metric = "rsq", n = 1)
+
+rr_best |> 
+  kable("html", align = "l")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "100px")
+```
+
+<b>Best Tuned Elastic Net Regression</b>
+
+```{r}
+# Show the best Elastic Net Regression model 
+en_best <- show_best(en_tune_res, metric = "rsq", n = 1)
+
+en_best |> 
+  kable("html", align = "l")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "100px")
+```
+
+<b>Best Tuned K Nearest Neighbors </b>
+
+```{r}
+# Show the best K nearest neighbors model 
+knn_best <- show_best(knn_tune_res, metric = "rsq", n = 1)
+
+knn_best |> 
+  kable("html", align = "l")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "100px")
+```
+
+<b>Best Tuned Random Forest </b>
+
+```{r}
+# Show the best K nearest neighbors model 
+rf_best <- show_best(rf_tune_res, metric = "rsq", n = 1)
+
+rf_best |> 
+  kable("html", align = "l")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "100px")
+```
+
+#### Compare the Models
+
+Alright, let's line up the best models from each type and see which one crowns the champion with the highest R squared value!
+```{r}
+# Make a tibble for comparison 
+compare_rsq <- tibble(Model = c("Linear Regression", "Lasso Regression", "Ridge Regression", "Elastic Net Regression", "K Nearest Neighbors",  "Random Forest"), Mean_R_squred = c(lm_cv$mean, lr_best$mean, rr_best$mean, en_best$mean, knn_best$mean, rf_best$mean))
+
+# Rearrange the R squared in descending order.
+compare_rsq <- compare_rsq |> 
+  arrange(-Mean_R_squred)
+
+compare_rsq |> 
+  kable("html", align = "l")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "265px")
+```
+
+Following diagram is a histogram drawn to visualize the performance of each model during cross validation.
+
+```{r}
+# Visualize the comparison between models
+compare_rsq |> 
+   ggplot(aes(x = reorder(Model, Mean_R_squred), y = Mean_R_squred,  fill = Model)) +
+  geom_histogram(stat="identity", color = "black", alpha = 0.5) +
+    geom_text(aes(label=sprintf("%.4f", Mean_R_squred)), vjust = -0.4) + 
+  labs(title = "Comparing Mean R Squred by Model Type",
+       x = "Model Type",
+       y = "Mean R squared") +
+  scale_x_discrete(guide = guide_axis(angle = 30)) +
+  scale_y_continuous(limits = c(0, 0.9)) +
+  scale_fill_hue(c = 80) +
+  theme_linedraw()
+```
+
+From the histogram, we can see that the K Nearest Neighbors models have the worst performance with the mean R square of 0.67, while the Random Forest models has the highest mean R square of 0.84, which is surprisingly high. This means that about 84% of variability in Salary can be explained by our 5 predictors, and the remaining 16% of the variance is not captured by the model and is due to other factors, errors, or randomness. Having mean R squared around 0.70, the performance of the other four linear models are very close to each other. This indicates that Random Forest performed significantly better than other models. One thing worth noticing is that the Elastic Net Regression have the same mean R squared value as Ridge regression. This is because the mixture for the best tuned Elastic Net model is 0, meaning that no lasso regression is applied, so it is basically using Ridge regression. Also, the best tuned penalty for Elastic Net and Ridge Regression is the same, so they have the same mean R square value As the result. 
+
+#### Model Autoplots
+
+Next, let's check the Autoplots of tuned models. Autoplot helps us to visualize how each hyperparameter affects the performance of our model. The following Autoplots shown below uses R square as metric of accessing performance. We will examine KNN, Elastic Net Regression, and the best Random Forest, because these three are most representative among all 6 models. KNN has worst performance, while Random Forest has the best, and Elastic Net Regression is representative for Linear Regression models. 
+
+<b> K Nearest Neighbors </b>
+
+```{r}
+# Plot the Autoplot for KNN 
+autoplot(knn_tune_res, metric = "rsq")
+```
+
+The R square curve exhibits a "n" shape. It reaches R square peak of 0.675 when the model is referencing 9 nearest neighbors. As we increase the number of neighbors from 1 to 3, there's a notable improvement in model performance, jumping from approximately 0.64 to 0.665. However, after 9 neighbors, increasing neighbors number only leads to monotonically decreasing of R square. The worst performance of KNN might due to the curse of dimensionality. This means that data becomes sparse as the number of predictors (dimensions) increases, and more observations are needed to fill the space. As we have 7 predictors in our model, we might need to increase the observation number to further improve the performance of KNN.  
+
+<b> Elastic Net Regression </b>
+
+```{r}
+# Plot the Autoplot for Elastic Net Regression 
+autoplot(en_tune_res, metric = "rsq") 
+
+```
+
+From the Autoplot, it's evident that introducing regularization methods appears to reduce the model's performance. As the proportion of the Lasso Penalty increases, the R squared correspondingly drops. There is a clear inverse relationship between the degree of regularization and the R squared value. This suggests that, for our dataset and predictors, regularization might not be the optimal approach. This observation is further supported by the fact that the best-tuned regularization models all have a penalty of zero, which could also explain why Linear Regression, Lasso Regression, Ridge Regression, and Elastic Net Regression have similar performance.
+
+<b> Random Forest </b>
+
+```{r}
+# Plot the Autoplot for Random Forest
+autoplot(rf_tune_res, metric = "rsq")
+```
+
+The performance of Random Trees has a strong positive correlation between the number of randomly selected predictors. More randomly selected predictor leads to higher R square. In contrast, numbers of trees and minimal node size seems doesn't affect the models performance significantly. This observation is underscored by the overlapping tree curves of different colors and similar curves across the Autoplots, indicating that these parameters might not be the primary drivers of performance for our dataset. Interestingly, comparing to other models, Random Trees have a very high starting point around 0.65 when only selecting 1 predictors for each trees split, which is just a bit lower than the best performed KNN model. When the model randomly consider two predictors, its performance already exceed all the linear regression models to about 0.75, suggesting Random Tree are more efficient in capturing underlying patterns in the data.
+
+#### The Champion
+
+All in all, there is no doubt that Random Forest is superior among all models types. Next, let's select the best Random Forest model and name it as `champion_mod_rf`.
+
+```{r}
+# Select the champion Random Forest model 
+champion_mod_rf <- select_best(rf_tune_res, metric = "rsq")
+
+champion_mod_rf
+
+# View the metrics of the champion
+rf_tune_res |> 
+  collect_metrics() |> 
+  filter(.config == "Preprocessor1_Model022") |>
+  filter(.metric == "rsq") |> 
+  kable("html", align = "l")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "100px")
+```
+Congratulation for our champion Preprocessor1_Model022!!! You stand out successfully from thousands of you peers. Having 300 different decision trees, Preprocessor1_Model022 randomly samples 5 predictors out of 7 as candidate during each split of a tree with a minimum node size of 10. Now that we've picked our top model, let's put it to the ultimate "final exam" using the testing set.
+
+![](https://media.giphy.com/media/gIwRorKprawv3ET3Iv/giphy-downsized-large.gif)
+
+# Model Testing
+
+As the champion, the best tuned Random Forest model, Preprocessor1_Model022, has the privilege to fit and train with the entire training dataset before final testing.
+
+```{r}
+# Fit the champion to the entire training dataset
+rf_champ_final_wkflow <- finalize_workflow(rf_wkflow, champion_mod_rf)
+rf_champ_final_trained <- fit(rf_champ_final_wkflow, data = salary_train)
+```
+
+Now our champion is ready for the final test with the testing set!
+
+```{r}
+# Use the fitted knn model to predict on testing set
+rf_champ_test_res <- augment(rf_champ_final_trained, new_data = salary_test) |> 
+  select(Salary, .pred, everything()) 
+
+rf_champ_test_res |> 
+  kable("html", align = "l")  |> 
+  kable_styling("striped")  |> 
+  scroll_box(width = "100%", height = "300px")
+```
+
+As we can see from the final result table above, the first column shows the actual salary, and the second column shows the predicted salary using our champion Random Forest model. However, it is hard to examine the models performance just by looking at those results. Let's calculate the R squared, Root Mean Squared Error, and Mean Absolute Error of the test result to help us assess the test performance.
+
+```{r}
+# Create metric set including R-square and RMSE
+salary_test_metrics <- metric_set(rsq, rmse, mae)
+
+# Collect the metric for the test result
+rf_champ_test_res |> 
+  salary_test_metrics(truth = Salary, estimate = .pred) |> 
+  mutate(across(where(is.numeric), ~ ifelse(.x < 1 & .x > -1, percent(.x, accuracy = 0.01), comma(.x))))
+```
+
+Surprisingly, our champion Random Forest model has nearly the same R squared as it has during 10-folds cross validation. On cross validation set, the model has mean R squared about 0.8403, but 0.8401 on the testing set, meaning the model has outperform the mean slightly on the testing set. Besides, this also indicates that performing 10-folds cross-validation has given us a solid estimation of the testing error. As introduced earlier, an R-squared of 84.01% indicates approximately 84% of the variability in the salaries can be explained by the model, which is a relatively high value. It seems that out model is performing well. 
+
+However, the Root Mean Square Error (rmse) of the testing result is 21,540, and the Mean Absolute Error (MAE) is 16,066. RMSE is a measure of the differences between the salary predicted by the model and the actual salary. It gives higher weight to large error by giving quadratic penalty to errors, so it amplifies larger error. In contrast, MAE is the average of the absolute differences between the predicted salary and actual salary. It gives a linear penalty to the prediction errors rather than quadratic. Hence, given that the MAE is smaller than the RMSE, my model occasionally has large errors, so there are still rooms for improvement.
+
+Next, let's visualize the model performance using a scatter plot.
+
+```{r}
+# Create a scatter plot of predicted salary against actual salary
+rf_champ_test_res |> 
+  ggplot(aes(x = .pred, y = Salary)) +
+  geom_abline(lty = 1, color = "red", linewidth = 1.2) +
+  geom_point(alpha = 0.15) +
+  coord_obs_pred() +
+  labs(title = 'Predicted Salary vs Actual Salary',
+       x = 'Actual Salary',
+       y = 'Predicted Salary') +
+  theme_linedraw()
+```
+
+The diagonal red line is the reference for perfect prediction, meaning that prediction is equals to the actual result. Hence, a point will lies close to the red line if the its predicted salary is close to the actual salary. From the diagram, it appears that most points follows the red line, and points are stacked around the red line, indicating that our champion model did a fairly good job. However, the models seems to over-predicted the salary when the actual salary exceeds 150,000 since there are some of dots lies above the red line when actual salary is between 150,000 and 200,000.
+
+## Variable Importance
+
+As we introduced earlier, Random forest is a ensemble method that combines multiple decision trees to produce prediction. Therefore, one of the inherent features of Random Forest is the ability to compute how each variable or feature contributes to the accuracy of the predictions. As a result, not only can Random Forest make predictions, but they can also provide insights into which variable are most importance in making those predictions, and it could be visualized using a Variable Importance Plot.
+
+```{r}
+# Plot Variable Importance Plot
+rf_champ_final_trained |> 
+  extract_fit_engine() |> 
+  vip() +
+  theme_linedraw()
+```
+
+According the the plot, the most important variable is `PC1`, which is the principle component that is extracted from `Age` and `Years.of.Experience` with Principle Component Analysis. This indicates that the combined effect of these two predictors, as captured by PC1, plays the most crucial role in salary determination in my model. It provides significant predictive power to the model by encapsulating the useful information of in `Age` and `Years.of.Experience` while reducing the noise, since it might offer a more comprehensive view of individual's career trajectory. The importance of `PC1` suggests that individuals who deeply specialize and commit to a specific domain over time might have greater financial rewards.The second and third important variables and all dummy variables for `Education.Level`, which is followed mainly by the dummy variables of `Industry`. However, comparing to `Age`, `Years.of.Experience`, and `Industry`, predictors like `Race`, `Country`, and `Gender` seems doesn't makes a significant difference on salary.
+
+This ordering of importance suggests that, beyond age and experience, educational level and the industry one chooses to work in are also pivotal in determining salary. Hence, for those looking to maximize their salary potential, it might worthwhile to invest in higher education. In addition, it is also reasonable to consider choosing an industry with higher salary potential. Therefore, it advisable to not only pursue higher education but also choose a industry that align with one's expertise and passion and specialize in that particular field.
+
+# Conclusion
+
+In this project, we have trained, tested, analyzed six different types of machine learning model to predict people's annual salary using 7 personal attributes: `Age`, `Gender`, `Education.Level`, `Years.of.Experience`, `Job.Title`, `Country`, and `Race`. Among these models, the Random Forest model has the best performance with R square of 84.01%, RMSE of 21,540, and MAE of 16,066 on the testing set, indicating that the model has a fairly good predictive power. 
+
+However, this model is far from perfect, and there is still a huge room for improvement. For raw dataset, the job titles are concentrated around tech, sales/marketing, and finance positions, so it is not representative enough for the entire job market since a lots of jobs are not included. The tech and engineering job titles alone already takes 54% of the samples in the dataset, so there is a huge class imbalance. Besides, because we uses own classified industry information as predictor instead of job title by examining the keywords in the job title, there might be personal bias and misclassifications which reduce the model accuracy. Hence, it would be helpful if there are more observations with job descriptions and more balanced and diversified job titles, so we could also try uses some Natural Language Processing method to better classify job titles based on the textual patterns. Furthermore, I would try to include more predictors like company, working location, or job descriptions into consideration. In addition, we only tested 6 model types, so there might be other models like polynomial regression and boosted trees that can outperform the Random Forest model. Last but not least, the number of models I am able to test is limited by my equipment. We might be able to get better results if I have the access to more computational power by training and cross validate more models.
+
+In conclusion, the Random Forest is decent overall in salary prediction, but there are still a long way to go. For me, this project gives me a great opportunity for me to explore the job market and solidify my knowledge and skills in Machine learning and coding by predicting the salary applying the machine learning models I learned, which I enjoyed a lot. Finally, I would like to express my heartfelt thanks to my instructor and teaching assistants for all their support and guidance.
+
+
+![](https://i.giphy.com/media/vPuszmHgeWnIhTkSr5/giphy.webp)
+
+# Sources
+
+The "<a href="https://www.kaggle.com/code/rajatraj0502/salary-dataset-based-on-country-and-race/input">Salary Data Based Country and Race</a>" dataset used in this project is taken from Kaggle published by the Rajat Raj.
+
+
+
+
